@@ -1,0 +1,73 @@
+# attempt to provide a more precise estimate of the peak frequency of the fft
+# based on idea of S57UUU frequency comperator: https://lea.hamradio.si/~s57uuu/scdsp/frcomp/index.html
+# parabolic interpolation by https://gist.github.com/PedroLopes/52a6cdd473bcae43c258
+
+# output: index of bin in USB spectrum
+
+from __future__ import division
+import numpy as np 
+from numpy import argmax, log
+from gnuradio import gr
+
+class blk(gr.sync_block):  # other base classes are basic_block, decim_block, interp_block
+   """FFT parametric interpolation"""
+   def __init__(self, vlen=256):  # only default arguments here
+        """arguments to this function show up as parameters in GRC"""
+        gr.sync_block.__init__(
+            self,
+            name='FFT_Interpol',   # will show up in GRC
+            in_sig=[(np.float32,vlen)],
+            out_sig=[(np.float32)]
+            )
+         # if an attribute with the same name as a parameter is found,
+        # a callback is registered (properties work, too).
+        self.vlen = vlen	
+
+   def work(self, input_items, output_items):
+        # Find the peak "p" and interpolate to get a more accurate peak
+        for i in range(len(input_items[0])):	#loops over vectors in stream
+            p = argmax(abs((input_items[0][i])))     # find the peak
+            #print("peak:", p)
+            true_p = parabolic(log(input_items[0][i]), p)[0]
+            #print("true peak:", true_p)
+            output_items[0][i]= true_p 
+        return len(output_items[0])
+
+"""
+   # simple "gravity function to estimat frequency"
+   def work_old(self, input_items, output_items):
+        # Find the peak and interpolate to get a more accurate peak
+        for i in range(len(input_items[0])):	#loops over vectors in stream
+            amplitude_sum = 0.0
+            frequency_sum = 0.0
+            #for j in range (self.bin-self.dist, self.bin+self.dist):	#calculate the center of gravity over the vector items (bins) arround the peak bin
+                amp_square = input_items[0][i][j] * input_items[0][i][j]
+                amplitude_sum = amplitude_sum + amp_square
+                frequency_sum = frequency_sum + j * amp_square
+            output_items[0][i]= frequency_sum / (amplitude_sum)
+        return len(output_items[0])
+"""
+
+# source: https://gist.github.com/PedroLopes/52a6cdd473bcae43c258
+def parabolic(f, x): 
+    """Quadratic interpolation for estimating the true position of an
+    inter-sample maximum when nearby samples are known.
+   
+    f is a vector and x is an index for that vector.
+   
+    Returns (vx, vy), the coordinates of the vertex of a parabola that goes
+    through point x and its two neighbors.
+   
+    Example:
+    Defining a vector f with a local maximum at index 3 (= 6), find local
+    maximum if points 2, 3, and 4 actually defined a parabola.
+   
+    In [3]: f = [2, 3, 1, 6, 4, 2, 3, 1]
+   
+    In [4]: parabolic(f, argmax(f))
+    Out[4]: (3.2142857142857144, 6.1607142857142856)
+   
+    """
+    xv = 1/2. * (f[x-1] - f[x+1]) / (f[x-1] - 2 * f[x] + f[x+1]) + x
+    yv = f[x] - 1/4. * (f[x-1] - f[x+1]) * (xv - x)
+    return (xv, yv)
